@@ -1,29 +1,38 @@
 package com.example.lancetran_firstapp;
 
 import android.Manifest;
+import android.content.Context;
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
-import android.database.Cursor;
 import android.os.Bundle;
 import android.telephony.SmsManager;
+import android.text.InputType;
 import android.text.TextUtils;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.Toast;
+
 import androidx.annotation.NonNull;
+import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
+
 import com.google.android.material.bottomsheet.BottomSheetDialog;
+
 import java.util.ArrayList;
 import java.util.List;
 
 public class DisplayActivity extends AppCompatActivity implements InventoryAdapter.OnItemClickListener {
 
     private static final int SMS_PERMISSION_CODE = 101;
+    private static final String PREFS_NAME = "InvenTrackerPrefs";
+    private static final String KEY_ALERT_PHONE = "sms_alert_phone_number";
+    private static final String DEFAULT_ALERT_PHONE = "5555215554";
 
     private EditText editItemName;
     private EditText editItemQty;
@@ -34,8 +43,7 @@ public class DisplayActivity extends AppCompatActivity implements InventoryAdapt
     private DatabaseHelper dbHelper;
     private InventoryAdapter adapter;
     private List<InventoryItem> itemList;
-
-    private final String alertPhoneNumber = "5555215554";
+    private SharedPreferences sharedPreferences;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -43,6 +51,12 @@ public class DisplayActivity extends AppCompatActivity implements InventoryAdapt
         setContentView(R.layout.activity_display);
 
         dbHelper = new DatabaseHelper(this);
+        sharedPreferences = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+
+        // Initialize default SMS recipient in SharedPreferences on first launch
+        if (!sharedPreferences.contains(KEY_ALERT_PHONE)) {
+            sharedPreferences.edit().putString(KEY_ALERT_PHONE, DEFAULT_ALERT_PHONE).apply();
+        }
 
         editItemName = findViewById(R.id.editItemName);
         editItemQty = findViewById(R.id.editItemQty);
@@ -59,25 +73,17 @@ public class DisplayActivity extends AppCompatActivity implements InventoryAdapt
         checkAndRequestSmsPermission();
 
         buttonAddItem.setOnClickListener(v -> handleAddItem());
+
+        // Long-press Add button to configure externalized SMS recipient number
+        buttonAddItem.setOnLongClickListener(v -> {
+            showSmsSettingsDialog();
+            return true;
+        });
     }
 
     private void loadInventoryData() {
         itemList.clear();
-        Cursor cursor = dbHelper.getAllItems();
-
-        if (cursor != null && cursor.moveToFirst()) {
-            do {
-                int id = cursor.getInt(cursor.getColumnIndexOrThrow(DatabaseHelper.COL_ITEM_ID));
-                String name = cursor.getString(cursor.getColumnIndexOrThrow(DatabaseHelper.COL_ITEM_NAME));
-                String sku = cursor.getString(cursor.getColumnIndexOrThrow(DatabaseHelper.COL_SKU));
-                String location = cursor.getString(cursor.getColumnIndexOrThrow(DatabaseHelper.COL_LOCATION));
-                int qty = cursor.getInt(cursor.getColumnIndexOrThrow(DatabaseHelper.COL_QUANTITY));
-                String notes = cursor.getString(cursor.getColumnIndexOrThrow(DatabaseHelper.COL_NOTES));
-
-                itemList.add(new InventoryItem(id, name, sku, location, qty, notes));
-            } while (cursor.moveToNext());
-            cursor.close();
-        }
+        itemList.addAll(dbHelper.getAllInventoryItems());
         adapter.notifyDataSetChanged();
     }
 
@@ -86,23 +92,39 @@ public class DisplayActivity extends AppCompatActivity implements InventoryAdapt
         String qtyString = editItemQty.getText().toString().trim();
         String location = editItemLocation.getText().toString().trim();
 
+        // Defensive validation: Require non-empty item name
         if (TextUtils.isEmpty(name)) {
+            editItemName.setError("Item name is required");
+            editItemName.requestFocus();
             Toast.makeText(this, "Please enter an item name.", Toast.LENGTH_SHORT).show();
             return;
         }
 
-        // QoL: Default Qty to 1 if empty
-        int quantity = 1;
-        if (!TextUtils.isEmpty(qtyString)) {
-            try {
-                quantity = Integer.parseInt(qtyString);
-            } catch (NumberFormatException e) {
-                Toast.makeText(this, "Invalid quantity. Defaulted to 1.", Toast.LENGTH_SHORT).show();
-                quantity = 1;
-            }
+        // Defensive validation: Require valid non-negative integer quantity
+        if (TextUtils.isEmpty(qtyString)) {
+            editItemQty.setError("Quantity is required");
+            editItemQty.requestFocus();
+            Toast.makeText(this, "Please enter a valid quantity.", Toast.LENGTH_SHORT).show();
+            return;
         }
 
-        // QoL: Default location to "General" if empty
+        int quantity;
+        try {
+            quantity = Integer.parseInt(qtyString);
+            if (quantity < 0) {
+                editItemQty.setError("Quantity cannot be negative");
+                editItemQty.requestFocus();
+                Toast.makeText(this, "Quantity must be 0 or greater.", Toast.LENGTH_SHORT).show();
+                return;
+            }
+        } catch (NumberFormatException e) {
+            editItemQty.setError("Enter a whole number");
+            editItemQty.requestFocus();
+            Toast.makeText(this, "Invalid quantity. Please enter a numeric value.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        // Default optional location cleanly
         if (TextUtils.isEmpty(location)) {
             location = "General";
         }
@@ -149,15 +171,33 @@ public class DisplayActivity extends AppCompatActivity implements InventoryAdapt
             String updatedLoc = editDialogLocation.getText().toString().trim();
 
             if (TextUtils.isEmpty(updatedName)) {
+                editDialogName.setError("Item name cannot be empty");
+                editDialogName.requestFocus();
                 Toast.makeText(this, "Item name cannot be empty.", Toast.LENGTH_SHORT).show();
                 return;
             }
 
-            int updatedQty = 1;
-            if (!TextUtils.isEmpty(updatedQtyStr)) {
-                try {
-                    updatedQty = Integer.parseInt(updatedQtyStr);
-                } catch (NumberFormatException ignored) {}
+            if (TextUtils.isEmpty(updatedQtyStr)) {
+                editDialogQty.setError("Quantity is required");
+                editDialogQty.requestFocus();
+                Toast.makeText(this, "Please enter a quantity.", Toast.LENGTH_SHORT).show();
+                return;
+            }
+
+            int updatedQty;
+            try {
+                updatedQty = Integer.parseInt(updatedQtyStr);
+                if (updatedQty < 0) {
+                    editDialogQty.setError("Quantity cannot be negative");
+                    editDialogQty.requestFocus();
+                    Toast.makeText(this, "Quantity must be 0 or greater.", Toast.LENGTH_SHORT).show();
+                    return;
+                }
+            } catch (NumberFormatException e) {
+                editDialogQty.setError("Enter a whole number");
+                editDialogQty.requestFocus();
+                Toast.makeText(this, "Invalid quantity. Enter a valid number.", Toast.LENGTH_SHORT).show();
+                return;
             }
 
             if (TextUtils.isEmpty(updatedLoc)) {
@@ -199,6 +239,32 @@ public class DisplayActivity extends AppCompatActivity implements InventoryAdapt
         dialog.show();
     }
 
+    private String getAlertPhoneNumber() {
+        return sharedPreferences.getString(KEY_ALERT_PHONE, DEFAULT_ALERT_PHONE);
+    }
+
+    private void showSmsSettingsDialog() {
+        EditText inputPhone = new EditText(this);
+        inputPhone.setInputType(InputType.TYPE_CLASS_PHONE);
+        inputPhone.setText(getAlertPhoneNumber());
+
+        new AlertDialog.Builder(this)
+                .setTitle("SMS Alert Recipient")
+                .setMessage("Configure phone number for zero-stock alerts:")
+                .setView(inputPhone)
+                .setPositiveButton("Save", (dialog, which) -> {
+                    String newNumber = inputPhone.getText().toString().trim();
+                    if (TextUtils.isEmpty(newNumber) || !newNumber.matches("\\+?[0-9]{7,15}")) {
+                        Toast.makeText(this, "Enter a valid phone number (7-15 digits).", Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+                    sharedPreferences.edit().putString(KEY_ALERT_PHONE, newNumber).apply();
+                    Toast.makeText(this, "SMS alert number updated.", Toast.LENGTH_SHORT).show();
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
     private void checkAndRequestSmsPermission() {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.SEND_SMS) != PackageManager.PERMISSION_GRANTED) {
             ActivityCompat.requestPermissions(this,
@@ -221,11 +287,17 @@ public class DisplayActivity extends AppCompatActivity implements InventoryAdapt
 
     private void triggerZeroStockAlert(String itemName, String location) {
         String alertMessage = "ALERT: Stock for " + itemName + " (" + location + ") is empty!";
+        String recipientPhone = getAlertPhoneNumber();
+
+        if (TextUtils.isEmpty(recipientPhone)) {
+            Toast.makeText(this, "No SMS recipient configured. " + alertMessage, Toast.LENGTH_LONG).show();
+            return;
+        }
 
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.SEND_SMS) == PackageManager.PERMISSION_GRANTED) {
             try {
                 SmsManager smsManager = SmsManager.getDefault();
-                smsManager.sendTextMessage(alertPhoneNumber, null, alertMessage, null, null);
+                smsManager.sendTextMessage(recipientPhone, null, alertMessage, null, null);
                 Toast.makeText(this, "Zero stock SMS alert dispatched!", Toast.LENGTH_SHORT).show();
             } catch (Exception e) {
                 Toast.makeText(this, "Could not send SMS: " + e.getMessage(), Toast.LENGTH_SHORT).show();

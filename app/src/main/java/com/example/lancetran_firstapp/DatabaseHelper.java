@@ -6,6 +6,9 @@ import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
 import android.database.sqlite.SQLiteOpenHelper;
 
+import java.util.ArrayList;
+import java.util.List;
+
 public class DatabaseHelper extends SQLiteOpenHelper {
 
     // Database Configuration
@@ -33,14 +36,12 @@ public class DatabaseHelper extends SQLiteOpenHelper {
 
     @Override
     public void onCreate(SQLiteDatabase db) {
-        // Create Users Table
         String createUsersTable = "CREATE TABLE " + TABLE_USERS + " (" +
                 COL_USER_ID + " INTEGER PRIMARY KEY AUTOINCREMENT, " +
                 COL_USERNAME + " TEXT UNIQUE, " +
                 COL_PASSWORD + " TEXT)";
         db.execSQL(createUsersTable);
 
-        // Create Inventory Items Table
         String createItemsTable = "CREATE TABLE " + TABLE_ITEMS + " (" +
                 COL_ITEM_ID + " INTEGER PRIMARY KEY AUTOINCREMENT, " +
                 COL_ITEM_NAME + " TEXT, " +
@@ -62,8 +63,10 @@ public class DatabaseHelper extends SQLiteOpenHelper {
     // Authentication Operations
     // ==========================================
 
-    // Register a new user account
     public boolean registerUser(String username, String password) {
+        if (username == null || username.trim().isEmpty() || password == null || password.trim().isEmpty()) {
+            return false;
+        }
         SQLiteDatabase db = this.getWritableDatabase();
         ContentValues cv = new ContentValues();
         cv.put(COL_USERNAME, username.trim());
@@ -72,52 +75,88 @@ public class DatabaseHelper extends SQLiteOpenHelper {
         return result != -1;
     }
 
-    // Check credentials for existing user login
     public boolean checkUserCredentials(String username, String password) {
+        if (username == null || password == null) {
+            return false;
+        }
         SQLiteDatabase db = this.getReadableDatabase();
-        Cursor cursor = db.query(TABLE_USERS, new String[]{COL_USER_ID},
-                COL_USERNAME + "=? AND " + COL_PASSWORD + "=?",
-                new String[]{username.trim(), password}, null, null, null);
-        boolean exists = (cursor.getCount() > 0);
-        cursor.close();
-        return exists;
+        Cursor cursor = null;
+        try {
+            cursor = db.query(TABLE_USERS, new String[]{COL_USER_ID},
+                    COL_USERNAME + "=? AND " + COL_PASSWORD + "=?",
+                    new String[]{username.trim(), password}, null, null, null);
+            return (cursor != null && cursor.getCount() > 0);
+        } finally {
+            if (cursor != null) {
+                cursor.close();
+            }
+        }
     }
 
-    // Check if username is already taken
     public boolean checkUserExists(String username) {
+        if (username == null) {
+            return false;
+        }
         SQLiteDatabase db = this.getReadableDatabase();
-        Cursor cursor = db.query(TABLE_USERS, new String[]{COL_USER_ID},
-                COL_USERNAME + "=?",
-                new String[]{username.trim()}, null, null, null);
-        boolean exists = (cursor.getCount() > 0);
-        cursor.close();
-        return exists;
+        Cursor cursor = null;
+        try {
+            cursor = db.query(TABLE_USERS, new String[]{COL_USER_ID},
+                    COL_USERNAME + "=?",
+                    new String[]{username.trim()}, null, null, null);
+            return (cursor != null && cursor.getCount() > 0);
+        } finally {
+            if (cursor != null) {
+                cursor.close();
+            }
+        }
     }
 
     // ==========================================
     // Inventory CRUD Operations
     // ==========================================
 
-    // Create: Insert a new stock item
     public boolean insertItem(String name, String sku, String location, int quantity, String notes) {
+        if (name == null || name.trim().isEmpty() || quantity < 0) {
+            return false;
+        }
         SQLiteDatabase db = this.getWritableDatabase();
         ContentValues cv = new ContentValues();
-        cv.put(COL_ITEM_NAME, name);
-        cv.put(COL_SKU, sku);
-        cv.put(COL_LOCATION, location);
-        cv.put(COL_QUANTITY, quantity);
-        cv.put(COL_NOTES, notes);
+        cv.put(COL_ITEM_NAME, name.trim());
+        cv.put(COL_SKU, sku != null ? sku.trim() : "N/A");
+        cv.put(COL_LOCATION, (location != null && !location.trim().isEmpty()) ? location.trim() : "General");
+        cv.put(COL_QUANTITY, Math.max(0, quantity));
+        cv.put(COL_NOTES, notes != null ? notes.trim() : "");
         long result = db.insert(TABLE_ITEMS, null, cv);
         return result != -1;
     }
 
-    // Read: Fetch all items for RecyclerView grid
-    public Cursor getAllItems() {
+    // Encapsulates Cursor lifecycle inside try-finally to prevent resource leaks
+    public List<InventoryItem> getAllInventoryItems() {
+        List<InventoryItem> items = new ArrayList<>();
         SQLiteDatabase db = this.getReadableDatabase();
-        return db.rawQuery("SELECT * FROM " + TABLE_ITEMS + " ORDER BY " + COL_ITEM_ID + " DESC", null);
+        Cursor cursor = null;
+        try {
+            cursor = db.rawQuery("SELECT * FROM " + TABLE_ITEMS + " ORDER BY " + COL_ITEM_ID + " DESC", null);
+            if (cursor != null && cursor.moveToFirst()) {
+                do {
+                    int id = cursor.getInt(cursor.getColumnIndexOrThrow(COL_ITEM_ID));
+                    String name = cursor.getString(cursor.getColumnIndexOrThrow(COL_ITEM_NAME));
+                    String sku = cursor.getString(cursor.getColumnIndexOrThrow(COL_SKU));
+                    String location = cursor.getString(cursor.getColumnIndexOrThrow(COL_LOCATION));
+                    int qty = cursor.getInt(cursor.getColumnIndexOrThrow(COL_QUANTITY));
+                    String notes = cursor.getString(cursor.getColumnIndexOrThrow(COL_NOTES));
+
+                    items.add(new InventoryItem(id, name, sku, location, qty, notes));
+                } while (cursor.moveToNext());
+            }
+        } finally {
+            if (cursor != null) {
+                cursor.close();
+            }
+        }
+        return items;
     }
 
-    // Update: Modify quantity (for +/- button clicks)
     public boolean updateItemQuantity(int itemId, int newQuantity) {
         SQLiteDatabase db = this.getWritableDatabase();
         ContentValues cv = new ContentValues();
@@ -126,20 +165,21 @@ public class DatabaseHelper extends SQLiteOpenHelper {
         return rows > 0;
     }
 
-    // Update: Full edit of item details
     public boolean updateItemDetails(int itemId, String name, String sku, String location, int quantity, String notes) {
+        if (name == null || name.trim().isEmpty() || quantity < 0) {
+            return false;
+        }
         SQLiteDatabase db = this.getWritableDatabase();
         ContentValues cv = new ContentValues();
-        cv.put(COL_ITEM_NAME, name);
-        cv.put(COL_SKU, sku);
-        cv.put(COL_LOCATION, location);
-        cv.put(COL_QUANTITY, quantity);
-        cv.put(COL_NOTES, notes);
+        cv.put(COL_ITEM_NAME, name.trim());
+        cv.put(COL_SKU, sku != null ? sku.trim() : "N/A");
+        cv.put(COL_LOCATION, (location != null && !location.trim().isEmpty()) ? location.trim() : "General");
+        cv.put(COL_QUANTITY, Math.max(0, quantity));
+        cv.put(COL_NOTES, notes != null ? notes.trim() : "");
         int rows = db.update(TABLE_ITEMS, cv, COL_ITEM_ID + "=?", new String[]{String.valueOf(itemId)});
         return rows > 0;
     }
 
-    // Delete: Remove an item from the database
     public boolean deleteItem(int itemId) {
         SQLiteDatabase db = this.getWritableDatabase();
         int rows = db.delete(TABLE_ITEMS, COL_ITEM_ID + "=?", new String[]{String.valueOf(itemId)});
