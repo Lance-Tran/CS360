@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="?attr/selectableItemBackground"
+    android:clickable="true"
+    android:focusable="true"
+    android:gravity="center_vertical"
+    android:orientation="horizontal"
+    android:paddingLeft="16dp"
+    android:paddingTop="14dp"
+    android:paddingRight="16dp"
+    android:paddingBottom="14dp">
+
+    <!-- Item Name -->
+    <TextView
+        android:id="@+id/textItemName"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1.8"
+        android:textColor="#212121"
+        android:textSize="15sp" />
+
+    <!-- Quantity -->
+    <TextView
+        android:id="@+id/textItemQty"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:gravity="center"
+        android:textColor="#424242"
+        android:textSize="15sp" />
+
+    <!-- Location -->
+    <TextView
+        android:id="@+id/textItemLocation"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1.2"
+        android:gravity="end"
+        android:textColor="#616161"
+        android:textSize="14sp" />
+
+</LinearLayout>

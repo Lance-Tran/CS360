@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+=============================================================================
+REFERENCES
+- Runtime Permissions & SEND_SMS:
+  https://developer.android.com/training/permissions/requesting
+- Telephony Hardware Feature Declaration:
+  https://developer.android.com/guide/topics/manifest/uses-feature-element
+=============================================================================
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- 1. Telephony feature declaration -->
+    <uses-feature
+        android:name="android.hardware.telephony"
+        android:required="false" />
+
+    <!-- 2. SMS Permission requirement -->
+    <uses-permission android:name="android.permission.SEND_SMS" />
+
+    <application
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="Inventory Manager"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.LanceTranFirstApp">
+
+        <!-- Screen 1: Login Activity (Launcher) -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- Screen 2: Database Display Activity (Configured to resize above keyboard) -->
+        <activity
+            android:name=".DisplayActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
+
+        <!-- Screen 3: SMS Settings Activity -->
+        <activity
+            android:name=".SettingsActivity"
+            android:exported="false" />
+
+    </application>
+
+</manifest>
